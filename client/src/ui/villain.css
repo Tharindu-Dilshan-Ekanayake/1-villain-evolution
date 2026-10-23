@@ -84,25 +84,6 @@
   flex-direction: column;
   min-width: 0;
 }
-.auth-uid {
-  display: flex;
-  align-items: center;
-  gap: max(4px, calc(6px * var(--s)));
-  font-size: max(10px, calc(15px * var(--s)));
-  color: #ffe066;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 0 var(--ink);
-}
-.net-dot {
-  width: max(6px, calc(9px * var(--s)));
-  height: max(6px, calc(9px * var(--s)));
-  border-radius: 50%;
-  background: #7d8796;
-  box-shadow: 0 0 0 max(1px, calc(2px * var(--s))) var(--ink);
-}
-.net-dot.on {
-  background: #41e05a;
-}
 
 /* --- Activity feed (right column, under the boosts) --- */
 .feed {
