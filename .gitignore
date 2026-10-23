@@ -1,0 +1,5 @@
+# Secrets: deploy tokens and env files stay out of git (use GitHub secrets).
+.env
+.env.*
+!.env.example
+*.pem

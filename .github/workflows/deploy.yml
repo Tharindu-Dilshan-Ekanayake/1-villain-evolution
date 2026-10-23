@@ -1,0 +1,108 @@
+# Deploys +1 Villain Evolution to Bloxity Legion.
+#   push to dev  -> dev channel   (https://1-villain-evolution.dev.play.bloxity.io)
+#   push to main -> prod channel  (https://1-villain-evolution.play.bloxity.io)
+#
+# One-time setup:
+#   1. Repo Settings -> Secrets and variables -> Actions -> New repository secret:
+#      LEGION_DEPLOY_TOKEN = the deploy token from My Games (never commit it).
+#   2. After the first run, make the GHCR package public so Legion can pull it:
+#      repo -> Packages -> 1-villain-evolution-server -> Package settings -> Change visibility.
+#
+# The backend runs behind the Legion matchmaker: Legion injects PORT, CLIENT_ORIGIN,
+# MONGODB_URI (a managed database for this game + channel), BLOXITY_GAME_ID,
+# BLOXITY_CHANNEL and POD_NAME; the server answers GET /health and drains on SIGTERM.
+name: Deploy to Bloxity Legion
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  GAME_ID: 1-villain-evolution
+  CHANNEL: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+  # Players per pod: the lobby room's maxClients (server/src/rooms/LobbyRoom.js).
+  SEAT_CAP: 8
+
+jobs:
+  backend:
+    name: Backend (Colyseus server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the deploy token is set
+        env:
+          LEGION_DEPLOY_TOKEN: ${{ secrets.LEGION_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$LEGION_DEPLOY_TOKEN" ]; then
+            echo "::error::Add the LEGION_DEPLOY_TOKEN repository secret (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the server image
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER}/${GAME_ID}-server:${CHANNEL}-${GITHUB_SHA}"
+          docker build -t "$IMAGE" ./server
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Roll it out on Legion
+        env:
+          LEGION_DEPLOY_TOKEN: ${{ secrets.LEGION_DEPLOY_TOKEN }}
+        run: |
+          curl -sS --fail-with-body -X POST "https://legion.bloxity.io/v1/apps/${GAME_ID}/deploy" \
+            -H "Authorization: Bearer ${LEGION_DEPLOY_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"channel\":\"${CHANNEL}\",\"image\":\"${IMAGE}\",\"version\":\"${GITHUB_SHA}\",\"seatCap\":${SEAT_CAP}}"
+
+  frontend:
+    name: Frontend (static client)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Build
+        working-directory: client
+        env:
+          VITE_GAME_SLUG: ${{ env.GAME_ID }}
+        run: |
+          npm ci
+          npm run build
+          cd dist && zip -qr ../build.zip .
+
+      - name: Upload to Legion hosting
+        env:
+          LEGION_DEPLOY_TOKEN: ${{ secrets.LEGION_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$LEGION_DEPLOY_TOKEN" ]; then
+            echo "::error::Add the LEGION_DEPLOY_TOKEN repository secret (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          curl -sS --fail-with-body -X POST \
+            "https://api.bloxity.io/v1/hosting/games/${GAME_ID}/frontend?channel=${CHANNEL}&version=${GITHUB_SHA}" \
+            -H "Authorization: Bearer ${LEGION_DEPLOY_TOKEN}" \
+            -H 'Content-Type: application/zip' \
+            --data-binary @client/build.zip

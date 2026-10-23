@@ -1,0 +1,4 @@
+# Leaderboard records and UIDs written at runtime (local development).
+data/
+# Dependencies are installed from package-lock.json.
+node_modules/

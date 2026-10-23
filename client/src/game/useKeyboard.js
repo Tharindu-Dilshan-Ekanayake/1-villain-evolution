@@ -16,8 +16,6 @@ const KEY_MAP = {
   KeyD: 'right',
   ArrowRight: 'right',
   Space: 'jump',
-  ShiftLeft: 'sprint',
-  ShiftRight: 'sprint',
 }
 
 export function useKeyboard() {
@@ -27,7 +25,6 @@ export function useKeyboard() {
     left: false,
     right: false,
     jump: false,
-    sprint: false,
   })
 
   useEffect(() => {

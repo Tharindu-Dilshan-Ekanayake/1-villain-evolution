@@ -3,12 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Power Per Click</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#3a0f80" />
+    <title>+1 Villain Evolution</title>
+
+    <!-- Start the connections and the avatar rig download before any JS runs. -->
+    <link rel="preconnect" href="https://sdk.bloxity.io" />
+    <link rel="preconnect" href="https://static.bloxity.io" crossorigin />
+    <link rel="preconnect" href="https://api.bloxity.io" crossorigin />
+    <link rel="preload" href="https://static.bloxity.io/avatars/player.glb" as="fetch" crossorigin />
+    <!-- The default skin: what a guest wears, and the fallback for everyone. -->
+    <link rel="preload" href="https://static.bloxity.io/avatars/skins/0.png" as="image" crossorigin />
+
+    <!-- Fredoka: the chunky rounded UI font (~30 KB woff2). Loaded without blocking the
+         page (media="print" until it arrives): a slow font server must never delay the
+         game; text swaps to Fredoka when it lands. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap" />
+    </noscript>
 
     <!-- Bloxity SDK. Exposes itself as window.Legion.SDK.
-         Must load before the Vite entry script below. -->
-    <script src="https://sdk.bloxity.io/v1/legion-sdk.min.js"></script>
+         `async`: the game must not wait for this third-party script before it starts
+         (with `defer` the entry module below would queue behind it). sdk.js waits for
+         window.Legion.SDK to appear, so whichever loads first is fine. -->
+    <script async src="https://sdk.bloxity.io/v1/legion-sdk.min.js"></script>
   </head>
   <body>
     <div id="root"></div>

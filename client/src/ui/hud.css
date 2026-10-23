@@ -1,0 +1,895 @@
+/*
+ * HUD layout. The HUD is a CSS grid: every piece lives in its own cell, so pieces can
+ * never overlap whatever the screen. `--s` (set by useHudLayout) scales the chrome;
+ * phones ("hud-compact") get explicit thumb-sized controls instead of pure scaling.
+ *
+ * The top-left cell is always empty: the game site draws its logo there.
+ */
+
+:root {
+  --gap: max(6px, calc(12px * var(--s)));
+  --logo-w: 200px;
+  --logo-h: 84px;
+  /* Menu button size and columns. */
+  --btn: calc(100px * var(--s));
+  --menu-cols: 2;
+  --promo-w: calc(230px * var(--s));
+  /* Touch controls. */
+  --joy: 128px;
+  --act: 84px;
+}
+
+.hud-compact {
+  --logo-w: 132px;
+  --logo-h: 52px;
+  --btn: clamp(38px, 10.5vh, 56px);
+  --menu-cols: 4;
+  --promo-w: clamp(104px, 15vw, 150px);
+  --joy: clamp(92px, 27vh, 128px);
+  --act: clamp(58px, 17vh, 84px);
+}
+
+.hud-compact.hud-portrait {
+  --logo-w: 120px;
+  --logo-h: 52px;
+  --btn: clamp(40px, 11vw, 56px);
+  --menu-cols: 4;
+  --promo-w: clamp(96px, 27vw, 140px);
+  --joy: clamp(104px, 30vw, 140px);
+  --act: clamp(64px, 19vw, 88px);
+}
+
+/* --- Grid ----------------------------------------------------------------------- */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  color: #fff;
+  font-weight: 700;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'logo top auth'
+    'left center right'
+    'ctl-l bottom ctl-r';
+  gap: var(--gap);
+  padding: max(var(--gap), env(safe-area-inset-top)) max(var(--gap), env(safe-area-inset-right))
+    max(var(--gap), env(safe-area-inset-bottom)) max(var(--gap), env(safe-area-inset-left));
+}
+
+.hud-portrait .hud {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    'logo . auth'
+    'top top top'
+    'tut tut tut'
+    'left . right'
+    'prompt prompt prompt'
+    'bottom bottom bottom'
+    'ctl-l . ctl-r';
+}
+
+.hud .live,
+.hud .gbtn {
+  pointer-events: auto;
+}
+
+/* Reserved for the site's logo: never put anything here. */
+.hud-logo {
+  grid-area: logo;
+  width: var(--logo-w);
+  height: var(--logo-h);
+}
+.hud-top {
+  grid-area: top;
+  justify-self: center;
+  align-self: start;
+  min-width: 0;
+}
+.hud-auth {
+  grid-area: auth;
+  justify-self: end;
+  align-self: start;
+}
+.hud-left {
+  grid-area: left;
+  align-self: center;
+  justify-self: start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap);
+}
+.hud-right {
+  grid-area: right;
+  align-self: center;
+  justify-self: end;
+}
+.hud-tut {
+  grid-area: center;
+  align-self: start;
+  justify-self: center;
+  min-width: 0;
+}
+.hud-prompt {
+  grid-area: center;
+  align-self: end;
+  justify-self: center;
+  min-width: 0;
+}
+.hud-bottom {
+  grid-area: bottom;
+  align-self: end;
+  justify-self: center;
+  width: min(100%, calc(900px * var(--s)));
+}
+.hud-ctl-l {
+  grid-area: ctl-l;
+  align-self: end;
+  justify-self: start;
+}
+.hud-ctl-r {
+  grid-area: ctl-r;
+  align-self: end;
+  justify-self: end;
+}
+
+.hud-portrait .hud-tut {
+  grid-area: tut;
+}
+.hud-portrait .hud-prompt {
+  grid-area: prompt;
+}
+.hud-portrait .hud-left,
+.hud-portrait .hud-right {
+  align-self: start;
+}
+.hud-portrait .hud-bottom {
+  width: 100%;
+}
+.hud-compact .hud-bottom {
+  width: 100%;
+  max-width: 520px;
+}
+.hud-compact.hud-portrait .hud-bottom {
+  max-width: 480px;
+}
+
+.hud-overlays {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* --- Top bar -------------------------------------------------------------------- */
+
+.top-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: max(5px, calc(10px * var(--s)));
+}
+.top-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: max(3px, calc(5px * var(--s)));
+}
+.top-btn {
+  padding: max(4px, calc(6px * var(--s))) max(8px, calc(18px * var(--s)));
+  border-radius: max(8px, calc(10px * var(--s)));
+  font-size: max(12px, calc(22px * var(--s)));
+}
+.big-toggle {
+  padding: max(4px, calc(6px * var(--s))) max(12px, calc(26px * var(--s)));
+  font-size: max(15px, calc(34px * var(--s)));
+}
+.big-toggle .state {
+  position: absolute;
+  top: calc(-6px * var(--s));
+  right: calc(-6px * var(--s));
+  font-size: max(9px, calc(16px * var(--s)));
+  transform: rotate(12deg);
+}
+.stage-chip {
+  display: flex;
+  align-items: baseline;
+  gap: max(5px, calc(8px * var(--s)));
+  padding: max(1px, calc(2px * var(--s))) max(8px, calc(12px * var(--s)));
+  border: max(2px, calc(3px * var(--s))) solid var(--ink);
+  border-radius: max(7px, calc(10px * var(--s)));
+  background: linear-gradient(#3a2d63, #241a40);
+  font-size: max(11px, calc(20px * var(--s)));
+  color: var(--wins);
+  white-space: nowrap;
+}
+.stage-chip .stage-walls {
+  font-size: max(9px, calc(14px * var(--s)));
+  color: #d9c8ff;
+}
+
+/* --- Name tag ------------------------------------------------------------------ */
+
+.auth-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.auth-chip {
+  display: flex;
+  align-items: center;
+  gap: max(6px, calc(10px * var(--s)));
+  padding: max(3px, calc(5px * var(--s))) max(10px, calc(16px * var(--s))) max(3px, calc(5px * var(--s)))
+    max(3px, calc(5px * var(--s)));
+  border: max(2px, calc(3px * var(--s))) solid var(--ink);
+  border-radius: 999px;
+  background: linear-gradient(rgba(58, 45, 99, 0.92), rgba(36, 26, 64, 0.92));
+  box-shadow: 0 max(2px, calc(4px * var(--s))) 0 var(--ink);
+}
+.auth-pfp {
+  width: max(26px, calc(46px * var(--s)));
+  height: max(26px, calc(46px * var(--s)));
+  border-radius: 50%;
+  object-fit: cover;
+  background: #241a40;
+  box-shadow:
+    0 0 0 max(2px, calc(3px * var(--s))) var(--wins),
+    0 0 0 max(3px, calc(5px * var(--s))) var(--ink);
+}
+.auth-initial {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(#8b5cf6, #5b21b6);
+  font-size: max(13px, calc(22px * var(--s)));
+}
+.auth-name {
+  max-width: max(90px, calc(190px * var(--s)));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: max(13px, calc(22px * var(--s)));
+  line-height: 1.1;
+  text-shadow:
+    0 2px 0 var(--ink),
+    0 0 6px rgba(0, 0, 0, 0.4);
+}
+
+/* --- Wins & Rebirths card: one under the other ----------------------------------- */
+
+.stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: max(4px, calc(8px * var(--s)));
+  padding: max(5px, calc(10px * var(--s)));
+  border: max(2px, calc(3px * var(--s))) solid var(--ink);
+  border-radius: max(12px, calc(18px * var(--s)));
+  background: linear-gradient(rgba(58, 45, 99, 0.94), rgba(36, 26, 64, 0.94));
+  box-shadow: 0 max(2px, calc(4px * var(--s))) 0 var(--ink);
+}
+.stat {
+  display: flex;
+  align-items: center;
+  gap: max(6px, calc(10px * var(--s)));
+  min-width: max(104px, calc(196px * var(--s)));
+  padding: max(2px, calc(4px * var(--s))) max(8px, calc(12px * var(--s))) max(2px, calc(4px * var(--s)))
+    max(2px, calc(4px * var(--s)));
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.stat-badge {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: max(26px, calc(50px * var(--s)));
+  height: max(26px, calc(50px * var(--s)));
+  border: max(2px, calc(3px * var(--s))) solid var(--ink);
+  border-radius: 50%;
+}
+.stat-wins .stat-badge {
+  background: radial-gradient(circle at 35% 30%, #fff3b0, #f2b705 60%, #b37400);
+}
+.stat-rebirths .stat-badge {
+  background: radial-gradient(circle at 35% 30%, #ffd1ec, #ff5fae 60%, #b0216a);
+}
+.stat-icon {
+  font-size: max(15px, calc(30px * var(--s)));
+  line-height: 1;
+  filter: drop-shadow(0 1px 0 var(--ink));
+}
+.stat-icon-img {
+  width: 82%;
+  height: 82%;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 0 var(--ink));
+}
+.stat-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+.stat-value {
+  font-size: max(16px, calc(34px * var(--s)));
+  color: var(--wins);
+}
+.stat-rebirths .stat-value {
+  color: #ff9ad5;
+}
+.stat-label {
+  margin-top: 1px;
+  font-size: max(8px, calc(13px * var(--s)));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d9c8ff;
+}
+.pop {
+  display: inline-block;
+  animation: stat-pop 0.35s ease-out;
+}
+
+/* Claimed trophies flying home (ui/winsFlight.js moves them with transforms). */
+.trophy-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  overflow: hidden;
+  pointer-events: none;
+}
+.trophy-fly {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: max(26px, calc(46px * var(--ps)));
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 210, 63, 0.9)) drop-shadow(0 3px 0 var(--ink));
+  will-change: transform, opacity;
+}
+/* The Wins badge flashes gold as each one lands. */
+.stat-badge.hit {
+  animation: badge-hit 0.32s ease-out;
+}
+@keyframes badge-hit {
+  40% {
+    transform: scale(1.3);
+    box-shadow:
+      0 0 0 max(3px, calc(5px * var(--s))) rgba(255, 224, 102, 0.75),
+      0 0 18px 6px rgba(255, 210, 63, 0.7);
+  }
+}
+@keyframes stat-pop {
+  from {
+    transform: scale(1.35);
+  }
+}
+
+/* --- Drawers (slide-away button groups) ------------------------------------------ */
+
+.drawer {
+  display: flex;
+  align-items: center;
+  gap: max(4px, calc(6px * var(--s)));
+}
+.drawer-body {
+  max-width: 640px;
+  transition:
+    max-width 0.3s ease,
+    opacity 0.22s ease,
+    transform 0.3s ease;
+}
+.drawer.is-closed .drawer-body {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-24px);
+}
+.drawer-right.is-closed .drawer-body {
+  transform: translateX(24px);
+}
+.drawer-tab {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 52px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.hud-compact .drawer-tab {
+  display: flex;
+}
+/* Big screens have the room: drawers are always open there. */
+html:not(.hud-compact) .drawer.is-closed .drawer-body {
+  max-width: 640px;
+  overflow: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+/* --- Menu ---------------------------------------------------------------------- */
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--menu-cols), var(--btn));
+  gap: max(5px, calc(8px * var(--s)));
+  padding-top: max(6px, calc(var(--btn) * 0.12));
+}
+.menu-btn {
+  width: var(--btn);
+  height: var(--btn);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0 calc(var(--btn) * 0.06);
+  border-radius: calc(var(--btn) * 0.16);
+}
+.menu-btn .icon {
+  font-size: calc(var(--btn) * 0.44);
+  line-height: 1;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.35));
+}
+.menu-btn .icon-img {
+  width: calc(var(--btn) * 0.52);
+  height: calc(var(--btn) * 0.52);
+  object-fit: contain;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.35));
+}
+.menu-btn .label {
+  font-size: max(9px, calc(var(--btn) * 0.19));
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.menu-btn .badge {
+  position: absolute;
+  top: calc(var(--btn) * -0.12);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: max(9px, calc(var(--btn) * 0.2));
+  white-space: nowrap;
+}
+.menu-btn .dot {
+  position: absolute;
+  top: calc(var(--btn) * -0.08);
+  right: calc(var(--btn) * -0.06);
+  width: max(14px, calc(var(--btn) * 0.25));
+  height: max(14px, calc(var(--btn) * 0.25));
+  border-radius: 50%;
+  background: #ff3b3b;
+  border: 2px solid var(--ink);
+  display: grid;
+  place-items: center;
+  font-size: max(9px, calc(var(--btn) * 0.15));
+}
+
+/* --- Offers --------------------------------------------------------------------- */
+
+.promo-stack {
+  display: flex;
+  flex-direction: column;
+  gap: max(6px, calc(10px * var(--s)));
+}
+.promo {
+  width: var(--promo-w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: max(3px, calc(6px * var(--s))) max(6px, calc(10px * var(--s))) max(5px, calc(9px * var(--s)));
+  line-height: 1.05;
+}
+.promo-tag {
+  font-size: max(8px, calc(15px * var(--s)));
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffe3ea;
+}
+.promo-title {
+  font-size: max(12px, calc(30px * var(--s)));
+  white-space: nowrap;
+}
+.promo-price {
+  margin-top: max(1px, calc(2px * var(--s)));
+  font-size: max(10px, calc(20px * var(--s)));
+}
+.promo-price.can-buy {
+  color: #c4ffbd;
+}
+
+/* --- Tutorial & prompt (always readable: they use the panel scale) --------------- */
+
+.tutorial-card,
+.prompt,
+.panel-backdrop,
+.toast,
+.banner {
+  --s: var(--ps);
+}
+
+.tutorial-card {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--s));
+  max-width: min(94vw, calc(760px * var(--s)));
+  padding: calc(8px * var(--s)) calc(14px * var(--s));
+  border: calc(3px * var(--s)) solid var(--ink);
+  border-radius: calc(14px * var(--s));
+  background: linear-gradient(#ffe066, #f2a91a);
+  box-shadow: 0 calc(4px * var(--s)) 0 var(--ink);
+  font-size: calc(22px * var(--s));
+  line-height: 1.15;
+  animation: card-pop 0.2s ease-out;
+}
+.tutorial-card .tut-text {
+  min-width: 0;
+}
+.tutorial-card .step {
+  padding: calc(2px * var(--s)) calc(8px * var(--s));
+  border-radius: calc(8px * var(--s));
+  background: var(--ink);
+  font-size: calc(15px * var(--s));
+  white-space: nowrap;
+}
+.tutorial-card .prog {
+  color: var(--ink);
+  font-size: calc(19px * var(--s));
+  white-space: nowrap;
+}
+.tutorial-card .skip {
+  padding: calc(2px * var(--s)) calc(10px * var(--s));
+  font-size: calc(14px * var(--s));
+}
+
+.prompt {
+  min-width: min(92vw, calc(340px * var(--s)));
+  max-width: min(94vw, calc(560px * var(--s)));
+  padding: calc(10px * var(--s)) calc(16px * var(--s));
+  border: calc(4px * var(--s)) solid var(--ink);
+  border-radius: calc(16px * var(--s));
+  background: linear-gradient(#3a2d63, #241a40);
+  box-shadow: 0 calc(6px * var(--s)) 0 var(--ink);
+  text-align: center;
+  pointer-events: auto;
+  animation: card-pop 0.18s ease-out;
+}
+.prompt .p-title {
+  font-size: calc(30px * var(--s));
+}
+.prompt .p-sub {
+  font-size: calc(19px * var(--s));
+  font-weight: 600;
+  color: #d9c8ff;
+}
+.prompt .p-speed {
+  color: #7dd8ff;
+}
+/* "Press E" badge on a prompt's main button; touch screens tap instead. */
+.key-hint {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35em;
+  height: 1.35em;
+  margin-right: 0.4em;
+  padding: 0 0.2em;
+  border: 2px solid var(--ink);
+  border-radius: 0.3em;
+  background: #ffffff;
+  box-shadow: 0 2px 0 var(--ink);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.85em;
+  line-height: 1;
+  text-shadow: none;
+  vertical-align: 0.08em;
+}
+.touch-ui .key-hint {
+  display: none;
+}
+.prompt .p-actions {
+  display: flex;
+  justify-content: center;
+  gap: calc(10px * var(--s));
+  margin-top: calc(8px * var(--s));
+}
+
+/* --- Bottom bar ----------------------------------------------------------------- */
+
+.bottom-bar {
+  width: 100%;
+}
+.bottom-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 calc(110px * var(--s));
+  margin-bottom: 2px;
+}
+.boosts {
+  font-size: max(11px, calc(24px * var(--s)));
+  line-height: 1.15;
+  color: var(--villain);
+}
+.bag-boost {
+  color: #ffd166;
+}
+.mult-text {
+  font-size: max(12px, calc(28px * var(--s)));
+  color: var(--mult);
+}
+.speed-amount {
+  font-size: max(15px, calc(40px * var(--s)));
+  line-height: 1;
+  color: var(--villain);
+}
+/* Phones: a slim bar - it sits between the thumbs, so it stays small. */
+.hud-compact .bottom-info {
+  padding: 0 4px;
+  margin-bottom: 1px;
+}
+.hud-compact .boosts {
+  font-size: 10px;
+}
+.hud-compact .mult-text {
+  font-size: 11px;
+}
+.hud-compact .speed-amount {
+  font-size: 14px;
+}
+.hud-compact .level-row {
+  gap: 5px;
+}
+.hud-compact .click-btn {
+  min-width: 42px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.hud-compact .level-bar {
+  height: 30px;
+  border-width: 2px;
+  border-radius: 8px;
+  box-shadow: 0 2px 0 var(--ink);
+}
+.hud-compact .level-text {
+  padding: 0 8px;
+  font-size: 14px;
+}
+.hud-compact .level-text .right {
+  font-size: 12px;
+}
+.hud-compact .speed-switch {
+  height: 30px;
+  min-width: 0;
+  padding: 0 6px;
+  gap: 1px;
+  border-width: 2px;
+  border-radius: 8px;
+}
+.hud-compact .speed-switch .ss-label {
+  font-size: 8px;
+}
+.hud-compact .speed-switch .ss-track {
+  width: 38px;
+  height: 13px;
+}
+.hud-compact .speed-switch .ss-state {
+  padding: 0 0 0 8px;
+  font-size: 8px;
+}
+.hud-compact .speed-switch.on .ss-state {
+  padding: 0 8px 0 0;
+}
+.hud-compact .speed-switch .ss-knob {
+  width: 9px;
+  height: 9px;
+  border-width: 1px;
+}
+.hud-compact .speed-switch.on .ss-knob {
+  left: calc(100% - 11px);
+}
+
+/* Normal Speed switch, left of the level bar: a label over an ON / OFF pill. */
+.speed-switch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--s));
+  flex-shrink: 0;
+  height: calc(86px * var(--s));
+  padding: 0 calc(14px * var(--s));
+  white-space: nowrap;
+}
+.speed-switch .ss-label {
+  font-size: calc(20px * var(--s));
+  line-height: 1;
+}
+.speed-switch .ss-track {
+  position: relative;
+  width: calc(96px * var(--s));
+  height: calc(32px * var(--s));
+  border: calc(3px * var(--s)) solid var(--ink);
+  border-radius: 999px;
+  background: #4a4366;
+  transition: background 0.15s;
+}
+.speed-switch.on .ss-track {
+  background: #1f8f3a;
+}
+.speed-switch .ss-knob {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: calc(24px * var(--s));
+  height: calc(24px * var(--s));
+  border: calc(2px * var(--s)) solid var(--ink);
+  border-radius: 50%;
+  background: #ffffff;
+  transform: translateY(-50%);
+  transition: left 0.15s;
+}
+.speed-switch.on .ss-knob {
+  left: calc(100% - 2px - 24px * var(--s));
+}
+.speed-switch .ss-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-left: calc(22px * var(--s));
+  font-size: calc(17px * var(--s));
+  line-height: 1;
+}
+.speed-switch.on .ss-state {
+  padding-left: 0;
+  padding-right: calc(22px * var(--s));
+}
+
+/* --- Touch controls ------------------------------------------------------------- */
+
+.joystick {
+  position: relative;
+  width: var(--joy);
+  height: var(--joy);
+  border-radius: 50%;
+  background: rgba(20, 12, 40, 0.28);
+  border: 3px solid rgba(255, 255, 255, 0.55);
+  touch-action: none;
+}
+.joystick .knob {
+  position: absolute;
+  left: 28%;
+  top: 28%;
+  width: 44%;
+  height: 44%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 3px solid var(--ink);
+}
+.actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.act-jump {
+  width: var(--act);
+  height: var(--act);
+  border-radius: 50%;
+  font-size: calc(var(--act) * 0.42);
+}
+
+/* --- Panel icons ---------------------------------------------------------------- */
+
+.panel-icon {
+  display: flex;
+  align-items: center;
+}
+.panel-icon-img {
+  width: calc(46px * var(--s));
+  height: calc(46px * var(--s));
+  object-fit: contain;
+  filter: drop-shadow(0 2px 0 var(--ink));
+}
+
+@keyframes card-pop {
+  from {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+}
+
+/* --- Overlays: never wider than the screen ------------------------------------------ */
+
+.toast,
+.banner,
+.big-callout {
+  width: max-content;
+  max-width: 92vw;
+  white-space: normal;
+  text-align: center;
+}
+.banner {
+  font-size: max(22px, calc(56px * var(--s)));
+}
+.big-callout {
+  font-size: max(30px, calc(96px * var(--s)));
+}
+.hud-compact .win-pop {
+  top: 40%;
+  right: 50%;
+  transform-origin: center;
+  font-size: max(30px, calc(84px * var(--s)));
+}
+
+/* --- Phones: slimmer prompt and tutorial card, no duplicate Worlds button ---------- */
+
+/* Phones: title over description on the left, the button on the right. */
+.hud-compact .prompt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'title act' 'sub act';
+  align-items: center;
+  column-gap: 10px;
+  min-width: min(92vw, 260px);
+  padding: 6px 10px;
+  border-width: 3px;
+  text-align: left;
+}
+.hud-compact .prompt .p-title {
+  grid-area: title;
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 1.15;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hud-compact .prompt .p-sub {
+  grid-area: sub;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.hud-compact .prompt .p-actions {
+  grid-area: act;
+  margin-top: 0;
+}
+.hud-compact .prompt .price-btn {
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.hud-compact .tutorial-card {
+  gap: 6px;
+  padding: 4px 8px;
+  border-width: 3px;
+  font-size: 13px;
+}
+.hud-compact .tutorial-card .step {
+  font-size: 10px;
+}
+.hud-compact .tutorial-card .prog {
+  font-size: 12px;
+}
+.hud-compact .tutorial-card .skip {
+  padding: 2px 7px;
+  font-size: 10px;
+}
+.hud-compact .worlds-btn {
+  display: none;
+}
+
+/* Numbers that tick up keep fixed-width digits, so the text never wobbles sideways. */
+.stat-value,
+.speed-amount,
+.mult-text,
+.level-text,
+.boosts,
+.stage-chip {
+  font-variant-numeric: tabular-nums;
+}

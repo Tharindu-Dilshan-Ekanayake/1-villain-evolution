@@ -19,7 +19,7 @@ export const SKY = {
   exponent: 0.3,
 }
 
-/** Just a light haze at the far end of the track. */
+/** Just a light haze at the far end of the track. `far` is overridden per quality preset. */
 export const FOG = {
   color: SKY.horizon,
   near: 120,
@@ -40,7 +40,7 @@ export const GROUND = {
   alt: '#52de2b',
 }
 
-/** Tan checker brick for the boundary walls. */
+/** Tan checker brick: the template's boundary walls, reused for the breakable stage walls. */
 export const WALLS = {
   base: '#c4955c',
   alt: '#a3774a',
@@ -69,4 +69,39 @@ export const LIGHTS = {
   shadowIntensity: 0.8,
   /** Blur radius of shadow edges, in shadow-map texels. */
   shadowSoftness: 4,
+}
+
+/* ---------------------------------------------------------------------------
+ * Villain Evolution additions. Picked to sit alongside the template palette above:
+ * the same saturated, slightly warm toy look, no muddy mid-tones.
+ * ------------------------------------------------------------------------- */
+
+/** The running path from spawn down every stage: red studs with yellow borders. */
+export const PATH = {
+  base: '#e8352b',
+  alt: '#d92e25',
+  border: '#ffd21a',
+  borderAlt: '#f2c200',
+}
+
+/** Stage colour (stage arch, wall tint), cycling by stage number. */
+export const STAGE_COLORS = ['#ff5a4d', '#ffc83d', '#b84dff', '#3fd0f2', '#41e05a', '#ff7ac8']
+
+/** WINS pads in the stages. */
+export const PADS = {
+  ready: '#ffc21a',
+  claimed: '#7d8796',
+}
+
+/** Voxel trees outside the walls. */
+export const TREES = {
+  trunk: '#8a5a32',
+  leaves: ['#41c22a', '#5cee30', '#37a823'],
+}
+
+/** The villain accent used across UI and effects. */
+export const VILLAIN = {
+  purple: '#8a2be2',
+  deep: '#3a0f80',
+  glow: '#d17bff',
 }
