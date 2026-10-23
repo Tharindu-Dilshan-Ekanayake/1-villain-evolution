@@ -9,6 +9,7 @@ import { AREA_SIGNS, GATE_Z } from '../layout'
 import { getPreset } from '../quality'
 import Boards from './Boards'
 import Eggs from './Eggs'
+import FlowArrows from './FlowArrows'
 import Gate from './Gate'
 import Ground from './Ground'
 import Pedestals from './Pedestals'
@@ -101,6 +102,7 @@ export function Lobby() {
   return (
     <>
       <Ground />
+      <FlowArrows />
       <group ref={groupRef}>
         {mounted >= 1 && <Gate />}
         {mounted >= 5 && <Boards />}
