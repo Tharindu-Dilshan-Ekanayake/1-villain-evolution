@@ -1,6 +1,7 @@
 import { NearestFilter, Quaternion, SRGBColorSpace, Vector3 } from 'three'
 
 import { BACK_BONE, HAT_BONE, NECK_OFFSET_BONE, PART_SLOTS } from '../bloxity/avatarAssets'
+import { softenPart } from '../characters/softBody'
 
 /**
  * Rig manipulation for the base `player.glb` character.
@@ -25,13 +26,16 @@ import { BACK_BONE, HAT_BONE, NECK_OFFSET_BONE, PART_SLOTS } from '../bloxity/av
  */
 
 /**
- * Walks the loaded rig and collects everything later operations need.
+ * Walks the loaded rig and collects everything later operations need. Box-shaped body
+ * parts are rounded off on the way (characters/softBody.js).
  *
  * @param {import('three').Object3D} root
+ * @param {'round' | 'bevel' | 'none'} [softMode]
  */
-export function collectRig(root) {
+export function collectRig(root, softMode = 'none') {
   const rig = {
     root,
+    softMode,
     skeleton: null,
     /** slot -> SkinnedMesh */
     partMeshes: {},
@@ -43,8 +47,10 @@ export function collectRig(root) {
     backBone: null,
     neckOffsetBindY: 0,
     skinnedMeshes: [],
-    /** Rest Y of the character root, so the run-cycle bob can return to it. */
+    /** Rest placement of the character root, so whole-body moves return to it. */
     rootRestY: root.position.y,
+    rootRestZ: root.position.z,
+    rootRestPitch: root.rotation.x,
   }
 
   const meshBySlot = new Map(
@@ -57,6 +63,9 @@ export function collectRig(root) {
       node.receiveShadow = true
       rig.skinnedMeshes.push(node)
       if (!rig.skeleton) rig.skeleton = node.skeleton
+      // Always soften from the pristine part, so a second pass can change the mode.
+      node.userData.baseGeometry ??= node.geometry
+      node.geometry = softenPart(node.userData.baseGeometry, softMode)
 
       const slot = meshBySlot.get((node.name || '').toLowerCase())
       if (slot) {
@@ -105,6 +114,8 @@ export function collectRig(root) {
       entry.axisX = new Vector3(1, 0, 0).applyQuaternion(relInv).normalize()
       /** Local axis to rotate about for lateral sway. */
       entry.axisZ = new Vector3(0, 0, 1).applyQuaternion(relInv).normalize()
+      /** Local axis to rotate about for a twist (turning the torso or head). */
+      entry.axisY = new Vector3(0, 1, 0).applyQuaternion(relInv).normalize()
     }
 
     rig.hatBone = skeleton.bones.find((b) => b.name === HAT_BONE) || null
@@ -191,6 +202,7 @@ export function applyPart(rig, slot, partScene) {
     return
   }
 
+  const cacheKey = `${skinnedSource.geometry.uuid}:${slot}`
   const geometry = skinnedSource.geometry.clone()
 
   const baseIndexByName = new Map()
@@ -212,7 +224,9 @@ export function applyPart(rig, slot, partScene) {
     skinIndex.needsUpdate = true
   }
 
-  targetMesh.geometry = geometry
+  const soft = softenPart(geometry, rig.softMode, cacheKey)
+  if (soft !== geometry) geometry.dispose()
+  targetMesh.geometry = soft
 }
 
 /**
@@ -304,90 +318,775 @@ export function applyProportions(rig, proportions) {
 /* ---------------------------------------------------------------------------
  * Procedural animation
  *
- * player.glb ships zero animation clips, so a walk/run/jump cycle has to be
- * driven directly on the bones. Rotations are *multiplied onto* whatever
- * applyProportions() just wrote, so this must run immediately after it in the
- * same frame - proportions reset each bone to its rest pose, which is exactly
- * the clean base a pose needs.
+ * player.glb ships zero animation clips, so every move is posed on the bones.
+ * A pose is a flat list of joint angles (channels); layers (stance, run, air,
+ * charge, slam, knockback, victory, flex) each write a full pose and are
+ * cross-faded by weight,
+ * then the result is applied once on top of the rest pose that
+ * applyProportions() just restored.
+ *
+ * Angle conventions, in character space (it faces +Z, its left is +X):
+ *   swing (about X): negative raises a limb forward / up; positive on a knee folds it.
+ *   sway  (about Z): positive moves the LEFT limb outward, negative the RIGHT one.
+ *   twist (about Y): positive turns the chest to its left (right shoulder forward).
  * ------------------------------------------------------------------------- */
+
+export const CH = {
+  spineSwing: 0,
+  spineSway: 1,
+  spineTwist: 2,
+  neckSwing: 3,
+  neckTwist: 4,
+  armL1Swing: 5,
+  armL1Sway: 6,
+  armL2Swing: 7,
+  armL2Sway: 8,
+  armR1Swing: 9,
+  armR1Sway: 10,
+  armR2Swing: 11,
+  armR2Sway: 12,
+  legL1Swing: 13,
+  legL1Sway: 14,
+  legL2Swing: 15,
+  legR1Swing: 16,
+  legR1Sway: 17,
+  legR2Swing: 18,
+  rootY: 19,
+  /** Whole body forward (model units) and pitched forward (radians, about the hips). */
+  rootZ: 20,
+  bodyPitch: 21,
+}
+const CHANNELS = 22
+/** Height of the hips in model units: whole-body pitch turns about them. */
+const HIP_PIVOT = 3.2
+
+export const createPose = () => new Float32Array(CHANNELS)
 
 const _animQ = new Quaternion()
 
-/**
- * Rotates a bone about one of its precomputed character-space axes.
- * `which` is 'axisX' (forward/back swing) or 'axisZ' (lateral sway).
- */
-function rotateBone(rig, name, which, angle) {
-  if (!angle) return
-  const entry = rig.bones[name]
-  const axis = entry?.[which]
+function rotateAbout(entry, axisKey, angle) {
+  if (!angle || !entry) return
+  const axis = entry[axisKey]
   if (!axis) return
   entry.bone.quaternion.multiply(_animQ.setFromAxisAngle(axis, angle))
 }
 
-/** Swing a limb forward/back - the plane a walk cycle actually moves in. */
-const swing = (rig, name, angle) => rotateBone(rig, name, 'axisX', angle)
-/** Sway a limb out to the side. */
-const sway = (rig, name, angle) => rotateBone(rig, name, 'axisZ', angle)
+function poseBone(rig, name, swingA, swayA, twistA) {
+  const entry = rig.bones[name]
+  if (!entry) return
+  rotateAbout(entry, 'axisX', swingA)
+  rotateAbout(entry, 'axisZ', swayA)
+  rotateAbout(entry, 'axisY', twistA)
+}
+
+/** Applies a pose on top of the rest pose (call right after applyProportions). */
+export function applyPose(rig, p) {
+  if (!rig?.skeleton) return
+  poseBone(rig, 'Spine1', p[CH.spineSwing], p[CH.spineSway], p[CH.spineTwist])
+  poseBone(rig, 'Neck1', p[CH.neckSwing], 0, p[CH.neckTwist])
+  poseBone(rig, 'ArmL1', p[CH.armL1Swing], p[CH.armL1Sway], 0)
+  poseBone(rig, 'ArmL2', p[CH.armL2Swing], p[CH.armL2Sway], 0)
+  poseBone(rig, 'ArmR1', p[CH.armR1Swing], p[CH.armR1Sway], 0)
+  poseBone(rig, 'ArmR2', p[CH.armR2Swing], p[CH.armR2Sway], 0)
+  poseBone(rig, 'LegL1', p[CH.legL1Swing], p[CH.legL1Sway], 0)
+  poseBone(rig, 'LegL2', p[CH.legL2Swing], 0, 0)
+  poseBone(rig, 'LegR1', p[CH.legR1Swing], p[CH.legR1Sway], 0)
+  poseBone(rig, 'LegR2', p[CH.legR2Swing], 0, 0)
+  // Pitch about the hips, not the feet: shift the root so the hips stay put.
+  const pitch = p[CH.bodyPitch]
+  rig.root.rotation.x = rig.rootRestPitch + pitch
+  rig.root.position.y = rig.rootRestY + p[CH.rootY] + HIP_PIVOT * (1 - Math.cos(pitch))
+  rig.root.position.z = rig.rootRestZ + p[CH.rootZ] - HIP_PIVOT * Math.sin(pitch)
+}
+
+function lerpPose(out, a, b, t) {
+  for (let i = 0; i < CHANNELS; i += 1) out[i] = a[i] + (b[i] - a[i]) * t
+}
+
+/* --- Layers ---------------------------------------------------------------- */
 
 /**
- * Poses the rig for the current motion state.
- *
- * @param {object} rig from `collectRig`
- * @param {{ time: number, speed: number, grounded: boolean, maxSpeed: number }} motion
- *   `speed` is horizontal speed in world units/sec; `maxSpeed` is what counts as a
- *   full-amplitude run, so the cycle scales smoothly from a walk to a sprint.
+ * Villain stance: chest out, arms held a little away from the body with loose fists,
+ * feet apart and a slow, menacing breath. (`bounce` 0 freezes it, for statues.)
  */
-export function animateRig(rig, motion) {
-  if (!rig?.skeleton || !motion) return
+function writeGuard(p, t, bounce = 1) {
+  p.fill(0)
+  const breathe = Math.sin(t * 1.7) * bounce
+  const sway = Math.sin(t * 0.9) * bounce
+  p[CH.spineSwing] = -0.06 + breathe * 0.02
+  p[CH.spineTwist] = sway * 0.05
+  p[CH.neckSwing] = -0.1 + breathe * 0.02
+  p[CH.neckTwist] = -sway * 0.08
 
-  const { time = 0, speed = 0, grounded = true, maxSpeed = 6 } = motion
-  const ratio = Math.min(speed / Math.max(maxSpeed, 0.001), 1)
+  p[CH.armL1Swing] = -0.2
+  p[CH.armL1Sway] = 0.34 + breathe * 0.03
+  p[CH.armL2Swing] = -0.55
+  p[CH.armR1Swing] = -0.2
+  p[CH.armR1Sway] = -0.34 - breathe * 0.03
+  p[CH.armR2Swing] = -0.55
 
-  rig.root.position.y = rig.rootRestY
+  p[CH.legL1Sway] = 0.13
+  p[CH.legR1Sway] = -0.13
+  p[CH.rootY] = breathe * 0.04
+}
 
-  // --- Airborne: tuck the legs, throw the arms up ---------------------------
-  if (!grounded) {
-    swing(rig, 'LegL1', -0.55)
-    swing(rig, 'LegL2', 0.75)
-    swing(rig, 'LegR1', 0.3)
-    swing(rig, 'LegR2', 0.2)
-    swing(rig, 'ArmL1', -2.1)
-    swing(rig, 'ArmR1', -2.1)
-    swing(rig, 'Spine1', -0.1)
-    return
-  }
-
-  // --- Standing still: a slow breathing sway --------------------------------
-  if (ratio < 0.04) {
-    const idle = Math.sin(time * 1.6)
-    sway(rig, 'ArmL1', -0.07 - idle * 0.03)
-    sway(rig, 'ArmR1', 0.07 + idle * 0.03)
-    swing(rig, 'Spine1', idle * 0.02)
-    rig.root.position.y = rig.rootRestY + idle * 0.03
-    return
-  }
-
-  // --- Walk / run cycle -----------------------------------------------------
-  // Step frequency rises with speed so a sprint doesn't look like a moonwalk.
-  const phase = time * (5 + ratio * 5)
+/** Fighter's run: fists up and pumping, leaning into it. */
+function writeRun(p, t, ratio) {
+  p.fill(0)
+  const phase = t * (5 + ratio * 5)
   const cycle = Math.sin(phase)
-  const legAmp = 0.85 * ratio
-  const armAmp = 0.7 * ratio
+  const legAmp = 0.9 * ratio
+  const armAmp = 0.75 * ratio
 
-  // Legs swing in opposition; knees fold on the backswing only.
-  swing(rig, 'LegL1', cycle * legAmp)
-  swing(rig, 'LegR1', -cycle * legAmp)
-  swing(rig, 'LegL2', Math.max(0, -cycle) * 1.1 * ratio)
-  swing(rig, 'LegR2', Math.max(0, cycle) * 1.1 * ratio)
+  p[CH.legL1Swing] = cycle * legAmp
+  p[CH.legR1Swing] = -cycle * legAmp
+  p[CH.legL2Swing] = Math.max(0, -cycle) * 1.2 * ratio + 0.1
+  p[CH.legR2Swing] = Math.max(0, cycle) * 1.2 * ratio + 0.1
 
-  // Arms counter-swing against the legs.
-  swing(rig, 'ArmL1', -cycle * armAmp)
-  swing(rig, 'ArmR1', cycle * armAmp)
-  swing(rig, 'ArmL2', Math.max(0, cycle) * 0.5 * ratio)
-  swing(rig, 'ArmR2', Math.max(0, -cycle) * 0.5 * ratio)
+  p[CH.armL1Swing] = -cycle * armAmp - 0.25
+  p[CH.armR1Swing] = cycle * armAmp - 0.25
+  p[CH.armL2Swing] = -1.25
+  p[CH.armR2Swing] = -1.25
+  p[CH.armL1Sway] = 0.08
+  p[CH.armR1Sway] = -0.08
 
-  // Lean into the run, and bob once per step (twice per full cycle).
-  swing(rig, 'Spine1', -0.14 * ratio)
-  rig.root.position.y = rig.rootRestY + Math.abs(Math.cos(phase)) * 0.18 * ratio
+  p[CH.spineSwing] = 0.2 * ratio
+  p[CH.spineTwist] = cycle * 0.12 * ratio
+  p[CH.neckSwing] = -0.12 * ratio
+  p[CH.rootY] = Math.abs(Math.cos(phase)) * 0.2 * ratio
+  return phase
+}
+
+function writeAir(p, rising) {
+  p.fill(0)
+  p[CH.legL1Swing] = -0.75
+  p[CH.legL2Swing] = 0.95
+  p[CH.legR1Swing] = 0.25
+  p[CH.legR2Swing] = 0.55
+  p[CH.armL1Swing] = rising ? -2.3 : -1.2
+  p[CH.armR1Swing] = rising ? -0.6 : -1.0
+  p[CH.armL1Sway] = 0.35
+  p[CH.armR1Sway] = -0.5
+  p[CH.armL2Swing] = -0.6
+  p[CH.armR2Swing] = -1.2
+  p[CH.spineSwing] = 0.1
+}
+
+/**
+ * Shoulder charge, layered over the run as a villain closes on a wall: leaning in,
+ * right shoulder leading, that arm braced across the chest, the other swept back.
+ */
+function writeCharge(p, base) {
+  p.set(base)
+  p[CH.bodyPitch] = 0.3
+  p[CH.spineTwist] = 0.55
+  p[CH.spineSwing] = 0.15
+  p[CH.neckSwing] = -0.22
+  p[CH.neckTwist] = -0.45
+  p[CH.armR1Swing] = -0.55
+  p[CH.armR1Sway] = 0.5
+  p[CH.armR2Swing] = -1.9
+  p[CH.armL1Swing] = 0.6
+  p[CH.armL1Sway] = 0.28
+  p[CH.armL2Swing] = -0.65
+}
+
+/** The instant of impact: squashed into the wall, crouched, shoulder buried. */
+function writeSlam(p, base) {
+  writeCharge(p, base)
+  p[CH.bodyPitch] = 0.48
+  p[CH.rootZ] = 0.55
+  p[CH.rootY] = -0.4
+  p[CH.spineTwist] = 0.7
+  p[CH.legL1Swing] = -0.55
+  p[CH.legL2Swing] = 0.75
+  p[CH.legR1Swing] = 0.55
+  p[CH.legR2Swing] = 0.45
+}
+
+/**
+ * Bounced off a wall that held: flung backwards through the air, body tipped back,
+ * arms and legs flailing. `u` (0..1) is how far through the flight it is.
+ */
+function writeKnock(p, t, u) {
+  p.fill(0)
+  const flail = Math.sin(t * 22)
+  const arc = Math.sin(Math.PI * Math.min(1, u))
+  p[CH.bodyPitch] = -0.3 - 0.5 * arc
+  p[CH.spineSwing] = -0.28
+  p[CH.spineTwist] = Math.sin(t * 9) * 0.18
+  p[CH.neckSwing] = -0.5 + 0.35 * u
+  p[CH.armL1Swing] = -2.1 + flail * 0.35
+  p[CH.armL1Sway] = 0.75
+  p[CH.armL2Swing] = -0.4
+  p[CH.armR1Swing] = -1.8 - flail * 0.35
+  p[CH.armR1Sway] = -0.8
+  p[CH.armR2Swing] = -0.5
+  p[CH.legL1Swing] = -0.95 + flail * 0.22
+  p[CH.legL2Swing] = 0.7
+  p[CH.legR1Swing] = -0.55 - flail * 0.22
+  p[CH.legR2Swing] = 1.0
+  p[CH.rootY] = 0.2 * arc
+}
+
+/**
+ * Landing from a knockback, superhero style: down on one knee, one fist planted on the
+ * ground, the other arm swept back.
+ */
+function writeLand(p, base) {
+  p.set(base)
+  p[CH.bodyPitch] = 0.32
+  p[CH.spineSwing] = 0.2
+  p[CH.spineTwist] = 0.25
+  p[CH.neckSwing] = -0.45
+  p[CH.rootY] = -1.5
+  p[CH.legL1Swing] = -1.25
+  p[CH.legL2Swing] = 1.45
+  p[CH.legL1Sway] = 0.1
+  p[CH.legR1Swing] = 0.85
+  p[CH.legR2Swing] = 1.85
+  p[CH.armR1Swing] = -0.55
+  p[CH.armR1Sway] = 0.12
+  p[CH.armR2Swing] = -0.05
+  p[CH.armL1Swing] = 0.95
+  p[CH.armL1Sway] = 0.65
+  p[CH.armL2Swing] = -0.3
+}
+
+/** Smashing through: both arms thrown up in triumph, still running. */
+function writeBurst(p, base) {
+  p.set(base)
+  p[CH.armL1Swing] = -2.65
+  p[CH.armR1Swing] = -2.65
+  p[CH.armL1Sway] = 0.5
+  p[CH.armR1Sway] = -0.5
+  p[CH.armL2Swing] = -0.2
+  p[CH.armR2Swing] = -0.2
+  p[CH.spineSwing] = -0.15
+  p[CH.spineTwist] = 0
+  p[CH.neckSwing] = -0.3
+  p[CH.bodyPitch] = 0.08
+}
+
+/* --- Villain styles ---------------------------------------------------------- */
+
+/** Hand on hip, weight on one leg, a head tilt and a slow sway. */
+function writeHips(p, t, bounce = 1) {
+  p.fill(0)
+  const breathe = Math.sin(t * 1.7) * bounce
+  const sway = Math.sin(t * 0.8) * bounce
+  p[CH.spineSway] = 0.09 + sway * 0.03
+  p[CH.spineTwist] = -0.14
+  p[CH.spineSwing] = -0.05 + breathe * 0.015
+  p[CH.neckTwist] = 0.16
+  p[CH.neckSwing] = -0.06
+  p[CH.armL1Swing] = 0.22
+  p[CH.armL1Sway] = 0.78
+  p[CH.armL2Swing] = -0.35
+  p[CH.armL2Sway] = -1.55
+  p[CH.armR1Swing] = -0.1
+  p[CH.armR1Sway] = -0.16 - breathe * 0.02
+  p[CH.armR2Swing] = -0.25
+  p[CH.legL1Sway] = 0.03
+  p[CH.legR1Sway] = -0.2
+  p[CH.legR1Swing] = -0.1
+  p[CH.legR2Swing] = 0.2
+  p[CH.rootY] = breathe * 0.03
+}
+
+/** Wide, heavy and hunched: arms bowed out, knees bent, big slow breaths. */
+function writeBruteStance(p, t, bounce = 1) {
+  p.fill(0)
+  const breathe = Math.sin(t * 1.4) * bounce
+  p[CH.spineSwing] = 0.22 + breathe * 0.03
+  p[CH.neckSwing] = -0.28
+  p[CH.armL1Swing] = -0.25
+  p[CH.armL1Sway] = 0.55 + breathe * 0.05
+  p[CH.armL2Swing] = -0.65
+  p[CH.armL2Sway] = -0.35
+  p[CH.armR1Swing] = -0.25
+  p[CH.armR1Sway] = -0.55 - breathe * 0.05
+  p[CH.armR2Swing] = -0.65
+  p[CH.armR2Sway] = 0.35
+  p[CH.legL1Swing] = -0.2
+  p[CH.legL1Sway] = 0.26
+  p[CH.legL2Swing] = 0.38
+  p[CH.legR1Swing] = -0.2
+  p[CH.legR1Sway] = -0.26
+  p[CH.legR2Swing] = 0.38
+  p[CH.rootY] = -0.3 + breathe * 0.06
+}
+
+/** Levitating: drifting up and down, legs together, arms held out, palms down. */
+function writeFloat(p, t, bounce = 1) {
+  p.fill(0)
+  const bob = Math.sin(t * 1.8) * bounce
+  p[CH.rootY] = 1.1 + bob * 0.25
+  p[CH.spineSway] = Math.sin(t * 1.1) * 0.05 * bounce
+  p[CH.spineSwing] = -0.04
+  p[CH.neckSwing] = -0.08
+  p[CH.armL1Swing] = -0.35
+  p[CH.armL1Sway] = 0.62 + bob * 0.06
+  p[CH.armL2Swing] = -0.3
+  p[CH.armR1Swing] = -0.35
+  p[CH.armR1Sway] = -0.62 - bob * 0.06
+  p[CH.armR2Swing] = -0.3
+  p[CH.legL1Swing] = -0.15
+  p[CH.legL2Swing] = 0.4
+  p[CH.legR1Swing] = 0.08
+  p[CH.legR2Swing] = 0.12
+  p[CH.legL1Sway] = -0.04
+  p[CH.legR1Sway] = 0.04
+}
+
+function writeStance(p, t, stance, bounce = 1) {
+  if (stance === 'hips') writeHips(p, t, bounce)
+  else if (stance === 'brute') writeBruteStance(p, t, bounce)
+  else if (stance === 'float') writeFloat(p, t, bounce)
+  else writeGuard(p, t, bounce)
+}
+
+/** The ninja run: leaning hard into it, arms straight out behind. */
+function writeNinjaRun(p, t, ratio) {
+  const phase = writeRun(p, t, ratio)
+  p[CH.bodyPitch] = 0.42 * ratio
+  p[CH.spineSwing] = 0.15 * ratio
+  p[CH.neckSwing] = -0.48 * ratio
+  p[CH.spineTwist] = 0
+  p[CH.armL1Swing] = 1.25
+  p[CH.armR1Swing] = 1.25
+  p[CH.armL1Sway] = 0.18
+  p[CH.armR1Sway] = -0.18
+  p[CH.armL2Swing] = 0
+  p[CH.armR2Swing] = 0
+  return phase
+}
+
+/** The brute's stomp: wide, rolling shoulders, big swinging arms, heavy bounce. */
+function writeBruteRun(p, t, ratio) {
+  const phase = writeRun(p, t * 0.85, ratio)
+  const cycle = Math.sin(phase)
+  p[CH.spineTwist] = cycle * 0.32 * ratio
+  p[CH.spineSwing] = 0.28 * ratio
+  p[CH.armL1Sway] = 0.45
+  p[CH.armR1Sway] = -0.45
+  p[CH.armL1Swing] = -cycle * 0.95 * ratio - 0.2
+  p[CH.armR1Swing] = cycle * 0.95 * ratio - 0.2
+  p[CH.armL2Swing] = -0.9
+  p[CH.armR2Swing] = -0.9
+  p[CH.legL1Sway] = 0.16
+  p[CH.legR1Sway] = -0.16
+  p[CH.rootY] = Math.abs(Math.cos(phase)) * 0.38 * ratio - 0.15
+  return phase
+}
+
+/**
+ * Hover-glide for the floating villains: tipped forward, arms swept back like wings,
+ * legs trailing together. The (unseen) stride phase still counts steps.
+ */
+function writeGlide(p, t, ratio) {
+  p.fill(0)
+  const phase = t * (5 + ratio * 5)
+  const beat = Math.sin(phase * 0.5)
+  p[CH.rootY] = 1.3 + beat * 0.18
+  p[CH.bodyPitch] = 0.65 * ratio
+  p[CH.spineSwing] = 0.1
+  p[CH.neckSwing] = -0.6 * ratio
+  p[CH.spineTwist] = Math.sin(t * 1.3) * 0.08
+  p[CH.armL1Swing] = 0.85 + beat * 0.15
+  p[CH.armR1Swing] = 0.85 + beat * 0.15
+  p[CH.armL1Sway] = 0.38
+  p[CH.armR1Sway] = -0.38
+  p[CH.armL2Swing] = -0.15
+  p[CH.armR2Swing] = -0.15
+  p[CH.legL1Swing] = 0.3
+  p[CH.legR1Swing] = 0.48
+  p[CH.legL2Swing] = 0.35
+  p[CH.legR2Swing] = 0.5
+  return phase
+}
+
+function writeRunStyle(p, t, ratio, run) {
+  if (run === 'ninja') return writeNinjaRun(p, t, ratio)
+  if (run === 'brute') return writeBruteRun(p, t, ratio)
+  if (run === 'glide') return writeGlide(p, t, ratio)
+  return writeRun(p, t, ratio)
+}
+
+/** Front flip, tucked tight: `u` 0..1 through the jump. */
+function writeFlip(p, u) {
+  p.fill(0)
+  const e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u)
+  p[CH.bodyPitch] = Math.PI * 2 * e
+  const tuck = Math.sin(Math.PI * Math.min(1, u * 1.15))
+  p[CH.legL1Swing] = -1.5 * tuck
+  p[CH.legR1Swing] = -1.5 * tuck
+  p[CH.legL2Swing] = 1.9 * tuck
+  p[CH.legR2Swing] = 1.9 * tuck
+  p[CH.armL1Swing] = -1.3 * tuck
+  p[CH.armR1Swing] = -1.3 * tuck
+  p[CH.armL2Swing] = -1.4 * tuck
+  p[CH.armR2Swing] = -1.4 * tuck
+  p[CH.spineSwing] = 0.35 * tuck
+  p[CH.neckSwing] = 0.3 * tuck
+  p[CH.rootY] = 0.6 * tuck
+}
+
+/** The evil laugh: claws up, head thrown back, shoulders shaking. */
+function writeLaugh(p, base, t) {
+  p.set(base)
+  const shake = Math.sin(t * 26)
+  p[CH.neckSwing] = -0.62 + shake * 0.05
+  p[CH.spineSwing] = -0.24
+  p[CH.spineTwist] = Math.sin(t * 11) * 0.07
+  p[CH.armL1Swing] = -0.95
+  p[CH.armL1Sway] = 0.95
+  p[CH.armL2Swing] = -1.35
+  p[CH.armR1Swing] = -0.95
+  p[CH.armR1Sway] = -0.95
+  p[CH.armR2Swing] = -1.35
+  p[CH.legL1Sway] = 0.16
+  p[CH.legR1Sway] = -0.16
+  p[CH.rootY] = (base[CH.rootY] || 0) + Math.abs(shake) * 0.1
+}
+
+/** The hair flip: a hand sweeps up through the hair and flicks it out, hip popped. */
+function writeHairflip(p, base, u) {
+  writeHips(p, u * 3, 0.5)
+  const up = Math.min(1, u / 0.4)
+  const flick = u > 0.4 ? Math.min(1, (u - 0.4) / 0.25) : 0
+  const back = u > 0.7 ? (u - 0.7) / 0.3 : 0
+  p[CH.armR1Swing] = (-2.7 + flick * 0.4) * up * (1 - back)
+  p[CH.armR1Sway] = (-0.25 - flick * 0.85) * (1 - back)
+  p[CH.armR2Swing] = -1.2 * up * (1 - flick) * (1 - back)
+  p[CH.neckTwist] = 0.16 + flick * 0.4 * (1 - back)
+  p[CH.neckSwing] = -0.06 - flick * 0.3 * (1 - back)
+  p[CH.spineSway] = 0.09 + flick * 0.1
+  p[CH.rootY] = (base[CH.rootY] > 0.5 ? base[CH.rootY] : 0) + flick * 0.1
+}
+
+/** Powering up as a new villain: rising, arms flung wide, head back. */
+function writePowerUp(p, base, u) {
+  p.set(base)
+  const lift = Math.sin(Math.PI * Math.min(1, u))
+  p[CH.rootY] = (base[CH.rootY] || 0) + lift * 1.6
+  p[CH.armL1Swing] = -2.0
+  p[CH.armL1Sway] = 1.0
+  p[CH.armR1Swing] = -2.0
+  p[CH.armR1Sway] = -1.0
+  p[CH.armL2Swing] = -0.2
+  p[CH.armR2Swing] = -0.2
+  p[CH.spineSwing] = -0.3
+  p[CH.neckSwing] = -0.55
+  p[CH.legL1Swing] = -0.2
+  p[CH.legL2Swing] = 0.5
+  p[CH.legR1Swing] = 0.15
+  p[CH.legR2Swing] = 0.35
+}
+
+function writeVictory(p, base, t) {
+  p.set(base)
+  const pump = Math.sin(t * 9) * 0.12
+  p[CH.armL1Swing] = -2.9 + pump
+  p[CH.armR1Swing] = -2.9 - pump
+  p[CH.armL1Sway] = 0.35
+  p[CH.armR1Sway] = -0.35
+  p[CH.armL2Swing] = -0.25
+  p[CH.armR2Swing] = -0.25
+  p[CH.spineSwing] = -0.12
+  p[CH.spineTwist] = 0
+  p[CH.neckSwing] = -0.25
+  p[CH.neckTwist] = 0
+  p[CH.rootY] = Math.abs(Math.sin(t * 9)) * 0.25
+}
+
+/** Double-biceps flex, for level ups and rebirths. */
+function writeFlex(p, base) {
+  p.set(base)
+  p[CH.armL1Swing] = -0.1
+  p[CH.armR1Swing] = -0.1
+  p[CH.armL1Sway] = 1.45
+  p[CH.armR1Sway] = -1.45
+  p[CH.armL2Sway] = 1.55
+  p[CH.armR2Sway] = -1.55
+  p[CH.armL2Swing] = 0
+  p[CH.armR2Swing] = 0
+  p[CH.spineSwing] = -0.06
+  p[CH.spineTwist] = 0
+  p[CH.neckTwist] = 0
+  p[CH.neckSwing] = -0.12
+  p[CH.legL1Sway] = 0.18
+  p[CH.legR1Sway] = -0.18
+  p[CH.legL1Swing] = 0
+  p[CH.legR1Swing] = 0
+  p[CH.rootY] = -0.08
+}
+
+/** Static statue poses for the villain pedestals. */
+export function writeStatuePose(p, name) {
+  const base = createPose()
+  switch (name) {
+    case 'salute':
+      p.fill(0)
+      p[CH.armR1Swing] = -1.7
+      p[CH.armR1Sway] = 0.75
+      p[CH.armR2Swing] = -2.2
+      p[CH.armL1Sway] = -0.05
+      p[CH.spineSwing] = -0.04
+      break
+    case 'fistUp':
+      p.fill(0)
+      p[CH.armR1Swing] = -2.95
+      p[CH.armR1Sway] = -0.2
+      p[CH.armR2Swing] = -0.15
+      p[CH.armL1Sway] = 0.55
+      p[CH.armL2Swing] = -1.3
+      p[CH.armL2Sway] = -0.4
+      p[CH.legL1Sway] = 0.12
+      p[CH.legR1Sway] = -0.12
+      p[CH.neckSwing] = -0.15
+      break
+    case 'ready':
+      p.fill(0)
+      p[CH.armL1Swing] = -0.45
+      p[CH.armR1Swing] = -0.3
+      p[CH.armL2Swing] = -0.9
+      p[CH.armR2Swing] = -1.1
+      p[CH.armL1Sway] = 0.15
+      p[CH.armR1Sway] = -0.15
+      p[CH.legL1Sway] = 0.18
+      p[CH.legR1Sway] = -0.18
+      p[CH.spineTwist] = 0.2
+      p[CH.neckTwist] = -0.2
+      break
+    case 'flex':
+      writeGuard(base, 0, 0)
+      writeFlex(p, base)
+      break
+    case 'armsBack':
+      p.fill(0)
+      p[CH.armL1Swing] = 0.45
+      p[CH.armR1Swing] = 0.45
+      p[CH.armL1Sway] = -0.15
+      p[CH.armR1Sway] = 0.15
+      p[CH.armL2Swing] = 0.6
+      p[CH.armR2Swing] = 0.6
+      p[CH.spineSwing] = -0.08
+      p[CH.neckSwing] = -0.1
+      break
+    case 'hips':
+      writeHips(p, 0, 0)
+      break
+    case 'laugh':
+      writeGuard(base, 0, 0)
+      writeLaugh(p, base, 0)
+      break
+    case 'float':
+      // Floating, both hands raised, casting.
+      writeFloat(p, 0, 0)
+      p[CH.armL1Swing] = -1.9
+      p[CH.armL1Sway] = 0.55
+      p[CH.armR1Swing] = -1.9
+      p[CH.armR1Sway] = -0.55
+      p[CH.armL2Swing] = -0.3
+      p[CH.armR2Swing] = -0.3
+      p[CH.neckSwing] = -0.2
+      break
+    case 'ninja':
+      writeNinjaRun(p, 0.32, 1)
+      break
+    case 'superhero':
+      writeGuard(base, 0, 0)
+      writeLand(p, base)
+      break
+    case 'pounce':
+      // Crouched to spring, claws out.
+      writeBruteStance(p, 0, 0)
+      p[CH.rootY] = -1.0
+      p[CH.bodyPitch] = 0.35
+      p[CH.legL1Swing] = -0.9
+      p[CH.legL2Swing] = 1.4
+      p[CH.legR1Swing] = -0.6
+      p[CH.legR2Swing] = 1.3
+      p[CH.armL1Swing] = -1.2
+      p[CH.armR1Swing] = -1.0
+      p[CH.armL2Swing] = -0.7
+      p[CH.armR2Swing] = -0.9
+      p[CH.neckSwing] = -0.5
+      break
+    case 'guard':
+    default:
+      writeGuard(p, 0, 0)
+  }
+}
+
+/* --- Driver ----------------------------------------------------------------- */
+
+const _base = createPose()
+const _layer = createPose()
+const _out = createPose()
+
+/** Per-character animation state, owned by the avatar component. */
+export function createAnimState() {
+  return {
+    moveBlend: 0,
+    airBlend: 0,
+    chargeBlend: 0,
+    slamStart: -10,
+    slamBroke: false,
+    flipStart: -10,
+    wasGrounded: true,
+    tauntStart: -10,
+    tauntKind: 'laugh',
+    powerStart: -10,
+    victoryStart: -10,
+    flexStart: -10,
+    lastStepPhase: 0,
+  }
+}
+
+/**
+ * Wall-slam timing, in seconds, shared with the physics in Player so the poses line
+ * up with the body: the hit-stop against the wall, the flight back, the landing.
+ */
+export const SLAM_TIMING = { hit: 0.12, flight: 0.5, land: 0.42, burst: 0.55 }
+
+/** How the villain moves when it has no style of its own. */
+export const DEFAULT_STYLE = { stance: 'menace', run: 'sprint', taunt: 'laugh' }
+
+const FLIP_TIME = 0.68
+export const TAUNT_TIME = { laugh: 1.6, hairflip: 1.15, flex: 1.1 }
+const POWER_TIME = 0.95
+
+/** The villain's taunt (`kind` from its style) starts now. */
+export function triggerTaunt(anim, time, kind) {
+  anim.tauntKind = TAUNT_TIME[kind] ? kind : 'laugh'
+  anim.tauntStart = time
+}
+
+/** Becoming a new villain: the power-up, then its taunt. */
+export function triggerPowerUp(anim, time, style) {
+  anim.powerStart = time
+  triggerTaunt(anim, time + POWER_TIME, (style || DEFAULT_STYLE).taunt)
+}
+
+/** True while a taunt or power-up is playing (so idle taunts don't overlap). */
+export function isPosing(anim, time) {
+  return time - anim.powerStart < POWER_TIME || (time >= anim.tauntStart && time - anim.tauntStart < (TAUNT_TIME[anim.tauntKind] || 1.5))
+}
+
+/** A slam into a wall starts now; `broke` if the wall gave way. */
+export function triggerSlam(anim, time, broke) {
+  anim.slamStart = time
+  anim.slamBroke = broke
+}
+
+const ramp = (t, len) => Math.min(1, Math.max(0, t / len))
+
+/**
+ * Poses the rig for this frame.
+ *
+ * @param {object} rig from collectRig
+ * @param {{ time: number, speed: number, grounded: boolean, maxSpeed: number,
+ *           vy?: number, charging?: boolean }} motion
+ * @param {object} anim from createAnimState
+ * @param {number} delta frame time in seconds
+ * @returns {boolean} true on the frame a foot lands during a run (for step sounds)
+ */
+export function animateRig(rig, motion, anim, delta = 1 / 60) {
+  if (!rig?.skeleton || !motion) return false
+  const { time = 0, speed = 0, grounded = true, maxSpeed = 6, vy = 0, charging = false } = motion
+  const style = motion.style || DEFAULT_STYLE
+  const ratio = Math.min(speed / Math.max(maxSpeed, 0.001), 1)
+  const T = SLAM_TIMING
+  const knocking = time - anim.slamStart < T.hit + T.flight + 0.1
+
+  // Leaving the ground on a jump (not a knockback): flip.
+  if (anim.wasGrounded && !grounded && vy > 3 && !knocking) anim.flipStart = time
+  anim.wasGrounded = grounded
+
+  // Smooth the layer weights so poses never pop.
+  const k = 1 - Math.pow(0.0005, delta)
+  anim.moveBlend += ((ratio > 0.06 ? 1 : 0) - anim.moveBlend) * k
+  anim.airBlend += ((grounded ? 0 : 1) - anim.airBlend) * Math.min(1, k * 1.5)
+  anim.chargeBlend += ((charging ? 1 : 0) - anim.chargeBlend) * Math.min(1, k * 1.2)
+
+  writeStance(_base, time, style.stance)
+  let stepped = false
+  if (anim.moveBlend > 0.001) {
+    const phase = writeRunStyle(_layer, time, Math.max(ratio, 0.35), style.run)
+    lerpPose(_base, _base, _layer, anim.moveBlend)
+    const stepPhase = Math.sin(phase)
+    if (ratio > 0.3 && grounded && Math.sign(stepPhase) !== Math.sign(anim.lastStepPhase)) {
+      stepped = true
+    }
+    anim.lastStepPhase = stepPhase
+  }
+  // Floaters stay floating; everyone else takes the jump pose in the air.
+  if (anim.airBlend > 0.001 && style.stance !== 'float') {
+    writeAir(_layer, vy > 0)
+    lerpPose(_base, _base, _layer, anim.airBlend)
+  }
+  const flipU = (time - anim.flipStart) / FLIP_TIME
+  if (flipU >= 0 && flipU < 1 && !grounded) {
+    writeFlip(_layer, flipU)
+    _base.set(_layer)
+  }
+  if (anim.chargeBlend > 0.001) {
+    writeCharge(_layer, _base)
+    lerpPose(_base, _base, _layer, anim.chargeBlend)
+  }
+
+  _out.set(_base)
+
+  // Taunts and the power-up play over the stance when standing (a run cancels them).
+  const still = 1 - anim.moveBlend
+  const pu = (time - anim.powerStart) / POWER_TIME
+  if (pu >= 0 && pu < 1) {
+    writePowerUp(_layer, _out, pu)
+    lerpPose(_out, _out, _layer, Math.min(1, pu * 6, (1 - pu) * 6))
+  }
+  const tt = time - anim.tauntStart
+  const tLen = TAUNT_TIME[anim.tauntKind] || 1.5
+  if (tt >= 0 && tt < tLen && still > 0.05) {
+    if (anim.tauntKind === 'hairflip') writeHairflip(_layer, _out, tt / tLen)
+    else if (anim.tauntKind === 'flex') writeFlex(_layer, _out)
+    else writeLaugh(_layer, _out, time)
+    lerpPose(_out, _out, _layer, Math.min(1, tt / 0.15, (tLen - tt) / 0.25) * still)
+  }
+
+  // Wall slam: impact, then either the burst through or the knockback and landing.
+  const since = time - anim.slamStart
+  if (since >= 0 && since < T.hit) {
+    writeSlam(_layer, _out)
+    lerpPose(_out, _out, _layer, ramp(since, 0.04))
+  } else if (anim.slamBroke && since >= T.hit && since < T.hit + T.burst) {
+    const u = since - T.hit
+    writeBurst(_layer, _out)
+    lerpPose(_out, _out, _layer, Math.min(ramp(u, 0.08), 1 - ramp(u - T.burst + 0.2, 0.2)))
+  } else if (!anim.slamBroke && since >= T.hit && since < T.hit + T.flight) {
+    writeKnock(_layer, time, (since - T.hit) / T.flight)
+    _out.set(_layer)
+  } else if (!anim.slamBroke && since >= T.hit + T.flight && since < T.hit + T.flight + T.land) {
+    const u = since - T.hit - T.flight
+    writeLand(_layer, _out)
+    lerpPose(_out, _out, _layer, 1 - ramp(u - T.land * 0.4, T.land * 0.6))
+  }
+
+  const vt = time - anim.victoryStart
+  if (vt >= 0 && vt < 1.4) {
+    const w = Math.min(1, vt / 0.15) * Math.min(1, (1.4 - vt) / 0.25)
+    writeVictory(_layer, _out, vt)
+    lerpPose(_out, _out, _layer, w)
+  }
+
+  const ft = time - anim.flexStart
+  if (ft >= 0 && ft < 1.1) {
+    const w = Math.min(1, ft / 0.15) * Math.min(1, (1.1 - ft) / 0.25)
+    writeFlex(_layer, _out)
+    lerpPose(_out, _out, _layer, w)
+  }
+
+  applyPose(rig, _out)
+  return stepped
 }

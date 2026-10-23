@@ -1,0 +1,468 @@
+/* =============================================================================
+ * Villain Evolution HUD pieces, on top of hud.css.
+ * ========================================================================== */
+
+/* --- SVG icons (ui/icons.js): 1em, sitting on the text baseline like an emoji. --- */
+.ico-wrap {
+  display: inline-flex;
+  vertical-align: -0.14em;
+  line-height: 1;
+}
+/* Inline even in label HTML (Tailwind's base styles make every svg a block). */
+.ico {
+  display: inline-block;
+  vertical-align: -0.14em;
+  width: 1em;
+  height: 1em;
+  overflow: visible;
+  filter: drop-shadow(0 0.06em 0 rgba(0, 0, 0, 0.35));
+}
+.menu-btn .icon .ico,
+.stat-icon /* Inline even in label HTML (Tailwind's base styles make every svg a block). */
+.ico {
+  display: inline-block;
+  vertical-align: -0.14em;
+  width: 1em;
+  height: 1em;
+}
+/* Drawer tab arrow. */
+.tri {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 0.42em solid transparent;
+  border-bottom: 0.42em solid transparent;
+}
+.tri-right {
+  border-left: 0.62em solid currentColor;
+}
+.tri-left {
+  border-right: 0.62em solid currentColor;
+}
+
+/* Tabular figures for numbers that change every step, so they don't jitter. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Speed in white over the level bar, the multiplier in cyan - as in the reference. */
+.speed-amount {
+  color: #ffffff;
+}
+.mult-text {
+  color: #5ce1ff;
+}
+
+/* "Level 7/10": the rebirth level, smaller and dimmer. */
+.level-top {
+  font-size: 0.7em;
+  opacity: 0.8;
+  margin-left: 0.15em;
+}
+
+/* --- Top centre: event timer and lobby chip --- */
+.event-timer {
+  font-size: max(12px, calc(26px * var(--s)));
+  color: #ffffff;
+  white-space: nowrap;
+}
+.event-timer.live {
+  color: #ffe066;
+  animation: pulse-glow 1s ease-in-out infinite alternate;
+}
+.event-timer .x2 {
+  color: #ff5a4d;
+}
+@keyframes pulse-glow {
+  to {
+    filter: brightness(1.25);
+  }
+}
+/* --- Name tag (top right) --- */
+.auth-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.auth-uid {
+  display: flex;
+  align-items: center;
+  gap: max(4px, calc(6px * var(--s)));
+  font-size: max(10px, calc(15px * var(--s)));
+  color: #ffe066;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 0 var(--ink);
+}
+.net-dot {
+  width: max(6px, calc(9px * var(--s)));
+  height: max(6px, calc(9px * var(--s)));
+  border-radius: 50%;
+  background: #7d8796;
+  box-shadow: 0 0 0 max(1px, calc(2px * var(--s))) var(--ink);
+}
+.net-dot.on {
+  background: #41e05a;
+}
+
+/* --- Activity feed (right column, under the boosts) --- */
+.feed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: max(3px, calc(5px * var(--s)));
+  margin-top: max(6px, calc(12px * var(--s)));
+  max-width: max(180px, calc(360px * var(--s)));
+  pointer-events: none;
+}
+.feed-line {
+  padding: max(2px, calc(4px * var(--s))) max(7px, calc(12px * var(--s)));
+  border-radius: max(6px, calc(10px * var(--s)));
+  background: rgba(27, 17, 48, 0.62);
+  color: #ffffff;
+  font-size: max(10px, calc(17px * var(--s)));
+  text-align: right;
+  animation:
+    feed-in 0.3s ease-out,
+    feed-out 0.6s ease-in 8.4s forwards;
+}
+.feed-line b {
+  color: #ffe066;
+}
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+}
+@keyframes feed-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* --- Prompt: villain portrait and egg odds --- */
+.prompt .p-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(12px * var(--ps));
+}
+.p-portrait {
+  width: calc(64px * var(--ps));
+  height: calc(64px * var(--ps));
+  image-rendering: pixelated;
+  border: calc(4px * var(--ps)) solid #fff;
+  border-radius: calc(12px * var(--ps));
+  background: #241a40;
+}
+.egg-odds {
+  display: flex;
+  justify-content: center;
+  gap: calc(8px * var(--ps));
+  margin: calc(6px * var(--ps)) 0;
+}
+.egg-pet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: calc(76px * var(--ps));
+  padding: calc(4px * var(--ps));
+  border: calc(3px * var(--ps)) solid #fff;
+  border-radius: calc(12px * var(--ps));
+  background: rgba(0, 0, 0, 0.3);
+}
+.egg-pet img {
+  width: calc(52px * var(--ps));
+  height: calc(52px * var(--ps));
+  image-rendering: pixelated;
+}
+.egg-pet-chance {
+  font-size: calc(18px * var(--ps));
+  color: #fff;
+}
+.egg-pet-boost {
+  font-size: calc(14px * var(--ps));
+  color: #7dff5a;
+}
+
+/* --- Panels: shared bits --- */
+.head-stat {
+  font-size: calc(30px * var(--ps));
+  color: var(--wins);
+  margin-right: calc(8px * var(--ps));
+}
+.section-title {
+  font-size: calc(26px * var(--ps));
+  color: #fff;
+  margin-top: calc(6px * var(--ps));
+}
+.section-note {
+  font-size: calc(16px * var(--ps));
+  color: #ffe066;
+  margin-left: calc(8px * var(--ps));
+}
+.big-action {
+  font-size: calc(40px * var(--ps));
+  padding: calc(8px * var(--ps));
+}
+.code-form {
+  display: flex;
+  gap: calc(10px * var(--ps));
+}
+.code-form input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: calc(28px * var(--ps));
+  padding: calc(6px * var(--ps)) calc(12px * var(--ps));
+  border: calc(3px * var(--ps)) solid var(--ink);
+  border-radius: calc(12px * var(--ps));
+  color: var(--ink);
+  background: #fff;
+}
+
+/* --- Villains panel --- */
+.villain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(150px * var(--ps)), 1fr));
+  gap: calc(10px * var(--ps));
+}
+.villain-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--ps));
+  padding: calc(8px * var(--ps));
+  border: calc(3px * var(--ps)) solid var(--ink);
+  border-radius: calc(14px * var(--ps));
+  background:
+    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--glow) 55%, transparent), transparent 70%),
+    linear-gradient(#3a2d63, #241a40);
+  box-shadow: 0 calc(4px * var(--ps)) 0 var(--ink);
+}
+.villain-card.equipped {
+  outline: calc(4px * var(--ps)) solid #ffd23f;
+}
+.vc-portrait {
+  width: calc(76px * var(--ps));
+  height: calc(76px * var(--ps));
+  border: calc(3px * var(--ps)) solid var(--glow);
+  border-radius: calc(12px * var(--ps));
+  overflow: hidden;
+  background: #1b1130;
+  box-shadow: 0 0 calc(14px * var(--ps)) var(--glow);
+}
+.vc-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+.vc-initial {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: calc(40px * var(--ps));
+}
+.vc-name {
+  font-size: calc(17px * var(--ps));
+  color: #fff;
+  text-align: center;
+  line-height: 1.05;
+}
+.vc-gain {
+  font-size: calc(15px * var(--ps));
+  color: #7dff5a;
+}
+.vc-btn {
+  width: 100%;
+  font-size: calc(16px * var(--ps));
+  padding: calc(4px * var(--ps)) calc(6px * var(--ps));
+}
+
+/* --- Pets panel --- */
+.pet-toolbar {
+  display: flex;
+  gap: calc(10px * var(--ps));
+  justify-content: center;
+}
+.pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(118px * var(--ps)), 1fr));
+  gap: calc(8px * var(--ps));
+}
+.pet-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(6px * var(--ps));
+  border: calc(3px * var(--ps)) solid var(--rarity);
+  border-radius: calc(14px * var(--ps));
+  background: linear-gradient(#3a2d63, #241a40);
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.pet-card.on {
+  background: linear-gradient(#2f7d32, #1f5a22);
+}
+.pet-card.deleting {
+  background: linear-gradient(#8a1028, #5a0a14);
+}
+.pet-card img {
+  width: calc(60px * var(--ps));
+  height: calc(60px * var(--ps));
+  image-rendering: pixelated;
+}
+.pc-name {
+  font-size: calc(15px * var(--ps));
+  color: #fff;
+  text-align: center;
+  line-height: 1.05;
+}
+.pc-rarity {
+  font-size: calc(13px * var(--ps));
+  color: var(--rarity);
+}
+.pc-boost {
+  font-size: calc(15px * var(--ps));
+  color: #7dff5a;
+}
+.pc-on,
+.pc-del {
+  position: absolute;
+  top: calc(4px * var(--ps));
+  right: calc(6px * var(--ps));
+  font-size: calc(18px * var(--ps));
+  color: #7dff5a;
+}
+
+/* --- Daily panel --- */
+.daily-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: calc(6px * var(--ps));
+}
+.daily-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(2px * var(--ps));
+  padding: calc(8px * var(--ps)) calc(4px * var(--ps));
+  border: calc(3px * var(--ps)) solid var(--ink);
+  border-radius: calc(12px * var(--ps));
+  background: linear-gradient(#3a2d63, #241a40);
+  color: #fff;
+}
+.daily-cell.today {
+  background: linear-gradient(#ffd23f, #e0a820);
+  animation: pulse-glow 0.8s ease-in-out infinite alternate;
+}
+.daily-cell.done {
+  opacity: 0.6;
+}
+.dc-day {
+  font-size: calc(16px * var(--ps));
+}
+.dc-reward {
+  font-size: calc(14px * var(--ps));
+  color: var(--wins);
+}
+.dc-boost {
+  font-size: calc(11px * var(--ps));
+  color: #bfe9ff;
+  text-align: center;
+}
+.dc-check {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  color: #7dff5a;
+  font-size: calc(18px * var(--ps));
+}
+
+/* --- Hatching --- */
+.hatch-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, rgba(27, 17, 48, 0.55), rgba(27, 17, 48, 0.82));
+  pointer-events: auto;
+  z-index: 40;
+}
+.hatch-eggs,
+.hatch-pets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(24px * var(--ps));
+}
+.hatch-egg {
+  width: calc(150px * var(--ps));
+  height: calc(190px * var(--ps));
+  border: calc(6px * var(--ps)) solid var(--ink);
+  border-radius: 50% 50% 46% 46% / 60% 60% 40% 40%;
+  background:
+    radial-gradient(circle at 30% 35%, var(--spots) 0 12%, transparent 13%),
+    radial-gradient(circle at 68% 55%, var(--spots) 0 10%, transparent 11%),
+    radial-gradient(circle at 40% 75%, var(--spots) 0 9%, transparent 10%),
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.7), transparent 30%),
+    var(--egg);
+  animation: egg-shake 0.55s ease-in-out infinite;
+}
+@keyframes egg-shake {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(-12deg) scale(1.04);
+  }
+  75% {
+    transform: rotate(12deg) scale(1.04);
+  }
+}
+.hatch-pet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(14px * var(--ps)) calc(18px * var(--ps));
+  border: calc(5px * var(--ps)) solid var(--rarity);
+  border-radius: calc(20px * var(--ps));
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--rarity) 60%, transparent), #241a40 70%);
+  box-shadow: 0 0 calc(40px * var(--ps)) var(--rarity);
+  animation: pet-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.hatch-pet img {
+  width: calc(130px * var(--ps));
+  height: calc(130px * var(--ps));
+  image-rendering: pixelated;
+}
+.hp-name {
+  font-size: calc(30px * var(--ps));
+  color: #fff;
+}
+.hp-rarity {
+  font-size: calc(22px * var(--ps));
+  color: var(--rarity);
+}
+.hp-boost {
+  font-size: calc(20px * var(--ps));
+  color: #7dff5a;
+}
+@keyframes pet-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2) rotate(-20deg);
+  }
+}
+
+/* "👟 +N" Speed pops. */
+.orb-icon {
+  font-size: 0.9em;
+  margin-right: 0.15em;
+}

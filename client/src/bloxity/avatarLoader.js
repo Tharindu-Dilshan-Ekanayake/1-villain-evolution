@@ -7,10 +7,10 @@ import { configureAvatarTexture } from '../game/avatarRig'
 /**
  * Imperative loaders for the equipped-cosmetic assets.
  *
- * Why not drei's `useGLTF` / `useLoader` for these: the set of equipped slots is
+ * Why not R3F's `useLoader` for these: the set of equipped slots is
  * dynamic (0-8 parts, changing at runtime via `onAvatarChanged`), and React hooks
  * cannot be called conditionally or in a variable-length loop. The base `player.glb`
- * is a fixed URL and *is* loaded with `useGLTF` in PlayerAvatar; everything dynamic
+ * is a fixed URL and *is* loaded with `useLoader` (useBaseBody); everything dynamic
  * goes through here.
  *
  * Every loader resolves to `null` instead of throwing on failure - a 404 on an

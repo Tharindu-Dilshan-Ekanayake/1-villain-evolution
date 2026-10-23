@@ -1,14 +1,18 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   BackSide,
   BufferAttribute,
   Color,
   IcosahedronGeometry,
+  Matrix4,
+  MeshBasicMaterial,
+  Quaternion,
   Triangle,
   Vector3,
 } from 'three'
 
+import { usePreset } from './quality'
 import { CLOUDS, LIGHTS, SKY } from './sceneStyle'
 
 const SKY_RADIUS = 450
@@ -176,10 +180,51 @@ function buildCloudLayout(count) {
   return clouds
 }
 
-function Clouds() {
+/**
+ * Every puff of every cloud is one instance of a single InstancedMesh: the whole sky
+ * is one draw call. The cloud count follows the quality preset.
+ */
+function Clouds({ count }) {
   const ref = useRef(null)
+  const meshRef = useRef(null)
   const geometry = useMemo(() => createPuffGeometry(), [])
-  const layout = useMemo(() => buildCloudLayout(CLOUDS.count), [])
+  const material = useMemo(() => new MeshBasicMaterial({ vertexColors: true, fog: false }), [])
+  const puffs = useMemo(() => {
+    const out = []
+    const cloudMatrix = new Matrix4()
+    const puffMatrix = new Matrix4()
+    const q = new Quaternion()
+    const up = new Vector3(0, 1, 0)
+    for (const cloud of buildCloudLayout(CLOUDS.count).slice(0, count)) {
+      q.setFromAxisAngle(up, cloud.rotationY)
+      cloudMatrix.compose(new Vector3(...cloud.position), q, new Vector3(1, 1, 1))
+      for (const puff of cloud.puffs) {
+        puffMatrix.compose(
+          new Vector3(...puff.position),
+          new Quaternion(),
+          new Vector3(...puff.scale),
+        )
+        out.push(cloudMatrix.clone().multiply(puffMatrix))
+      }
+    }
+    return out
+  }, [count])
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    puffs.forEach((m, i) => mesh.setMatrixAt(i, m))
+    mesh.instanceMatrix.needsUpdate = true
+    mesh.computeBoundingSphere()
+  }, [puffs])
+
+  useEffect(
+    () => () => {
+      geometry.dispose()
+      material.dispose()
+    },
+    [geometry, material],
+  )
 
   useFrame((_state, delta) => {
     if (ref.current) ref.current.rotation.y += delta * CLOUD_DRIFT
@@ -187,26 +232,24 @@ function Clouds() {
 
   return (
     <group ref={ref} position={CLOUD_CENTER}>
-      {layout.map((cloud, i) => (
-        <group key={i} position={cloud.position} rotation={[0, cloud.rotationY, 0]}>
-          {cloud.puffs.map((puff, p) => (
-            <mesh key={p} geometry={geometry} position={puff.position} scale={puff.scale}>
-              {/* fog off: the clouds sit past the fog's far distance and would vanish. */}
-              <meshBasicMaterial vertexColors fog={false} />
-            </mesh>
-          ))}
-        </group>
-      ))}
+      {/* fog off on the material: the clouds sit past the fog's far distance. */}
+      <instancedMesh
+        key={puffs.length}
+        ref={meshRef}
+        args={[geometry, material, puffs.length]}
+        frustumCulled={false}
+      />
     </group>
   )
 }
 
 /** Gradient sky plus drifting low-poly clouds. */
 export function Sky() {
+  const preset = usePreset()
   return (
     <>
       <SkyDome />
-      <Clouds />
+      <Clouds count={preset.clouds} />
     </>
   )
 }
